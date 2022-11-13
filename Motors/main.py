@@ -1,66 +1,3 @@
-"""
-test tcs34725 using tcs345725 class library
-
-import sys
-from time import sleep
-from machine import Pin, I2C
-
-from tcs34725 import *                                  # class library
-
-
-def main():
-    print("Starting tcs34725_test program")
-    if sys.platform == "pyboard":                       # test with PyBoard
-        tcs = TCS34725(scl=Pin("B6"), sda=Pin("B7"))    # instance of TCS34725 on pyboard
-    else:                                               # test with ESP32 board
-        tcs = TCS34725(scl=Pin(18), sda=Pin(19))         # instance of TCS34725 on ESP32
-    if not tcs.isconnected:                             # terminate if not connected
-        print("Terminating...")
-        sys.exit()
-    tcs.gain = TCSGAIN_LOW
-    tcs.integ = TCSINTEG_HIGH
-    tcs.autogain = True                                 # use autogain!
-
-    color_names = ("Clear", "Red", "Green", "Blue")
-
-    print(" Clear   Red Green  Blue    gain  >")
-    try:
-        while True:                                     # forever
-            colors = tcs.colors                   # obtain all counts
-            counts = list(colors)                 # convert to list
-            clear = colors[0]                     # clear
-            print(" {:5d}".format(clear), end="")
-            red = int(pow((int((colors[1] / clear) * 256) / 255), 2.5) * 255)           # red
-            print(" {:5d}".format(red), end="")
-            green = int(pow((int((colors[2] / clear) * 256) / 255), 2.5) * 255)  # red
-            print(" {:5d}".format(green), end="")
-            blue = int(pow((int((colors[3] / clear) * 256) / 255), 2.5) * 255)  # red
-            print(" {:5d}".format(blue), end="")
-            # not sure if this method to find the dominant color always works
-            largest = max(counts[1:])                   # largest count of RGB
-            avg = sum(counts[1:]) // 3                  # average of color counts
-            if largest > avg * 3 // 2:                  # largest 50% over average
-                color = color_names[counts.index(largest)]
-            else:
-                color = "-"
-            print("    ({:2d})  {:s}" .format(tcs.gain_factor, color))
-            sleep(5)                                    # interval between reads
-
-    except KeyboardInterrupt:
-        print("Closing down!")
-
-    except Exception as err:
-        print("Exception:", err)
-
-    tcs.close()
-
-main()
-
-"""
-
-# imports
-
-import time
 import _thread
 import steppers
 from microdot import Microdot
@@ -119,7 +56,7 @@ for stepper in stepper_drivers:
     stepper.step(0, 0)
 
 # Servo motors region
-
+print('Servo motors')
 # Free PWM pins are 15, 4, 22, 23, 12, 13, 32 and 33
 servo_pins = (33, 32, 15)
 servo_motors = []
@@ -130,6 +67,7 @@ for pin in servo_pins:
     servo_motors.append(pwm)
 
 # DC Motor
+print('DC Motor')
 
 motor_drivers = []
 
@@ -137,18 +75,14 @@ standby = Pin(23, Pin.OUT)
 standby.value(1)
 
 motor = L298(5, 4, 22)
+pump = L298(13, 12, None)
 
 motor_drivers.append(motor)
+motor_drivers.append(pump)
 motor.speed(1023)
+pump.speed(1023)
 
-# Servo motors region
-"""relay_pins = (4, 13, 22, 12, 23, 15)
-relays = []
-
-for pin in relay_pins:
-    relay = Pin(pin, Pin.OUT)
-    relay.value(False)
-    relays.append(relay) """
+print('Define microdot app')
 
 app = Microdot()
 
@@ -196,11 +130,11 @@ def servos(request, identifier):
 
 @app.post("/motors/<identifier>")
 def motors(request, identifier):
-    def run_motor(m, t_on: float, dir: int):
+    def run_motor(m, t_on: float, direction: int):
         if isinstance(m, L298):
-            if dir == 1:
+            if direction == 1:
                 m.forward()
-            elif dir == -1:
+            elif direction == -1:
                 m.reverse()
             sleep(t_on)
             m.stop()
@@ -217,20 +151,6 @@ def motors(request, identifier):
     return 'OK'
 
 
-"""""@app.post("/relay/<identifier>")
-def motors(request, identifier):
-    print('Data received')
-    print('Enable: {0}'.format(request.args['enable']))
-    print('ID: {0}'.format(identifier))
-    identifier = int(identifier)
-    enable = True if int(request.args['enable']) else False
-    if identifier > len(servo_motors):
-        return 'FAIL'
-    # Servo control here
-    relays[identifier].value(enable)
-    return 'OK' """
-
-
 @app.post("/stop")
 def stop(request):
     def map_val(x, in_min, in_max, out_min, out_max):
@@ -242,8 +162,11 @@ def stop(request):
             s.stop = True
     for servo in servo_motors:
         servo.duty(map_val(180, 0, 180, 20, 120))
-    for r in relays:
-        r.value(False)
+    return 'OK'
+
+
+@app.route("/status")
+def status(request):
     return 'OK'
 
 
