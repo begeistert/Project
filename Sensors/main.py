@@ -28,16 +28,18 @@ for piezo_e in piezos:
 
 metal_sensor = Pin(26, Pin.IN)
 
-emergency = Pin(5, Pin.IN)
-emergency_old = False
+emergency = Pin(5, Pin.IN, Pin.PULL_UP)
+emergency_old = True
 
-relay_pins = (4, 14, 22, 12, 23, 19)
+relay_pins = (4, 14, 22, 12, 23)
 relays = []
 
 for pin in relay_pins:
     relay = Pin(pin, Pin.OUT)
     relay.value(True)
     relays.append(relay)
+
+stop = False
 
 # Create web app
 
@@ -47,14 +49,6 @@ app = Microdot()
 @app.route("/")
 def index():
     return "Hello World!"
-
-
-"""
-@app.route("/distance")
-def distance(request):
-    d = distance_sensor.distance_cm()
-    return f'{d}'
-"""
 
 
 @app.get("/colour")
@@ -72,10 +66,19 @@ def is_metal(request):
 @app.get("/piezo/<int:identifier>")
 def is_metal(request, identifier):
     piezo = piezos[identifier]
-    value = piezo.touch_begins()
-    print('Piezo {0} value: {1}'.format(identifier, value))
-    return {'value': value}
-    return {'id': identifier, 'touch': value}
+    # piezo.calibrate()
+    t = time.time()
+    positive_count = 0
+    while time.time() - t < 30:
+        # time.sleep(0.001)
+        # piezo.calibrate()
+        value = piezo.touch_begins()
+        print(value)
+        if value:
+            positive_count += 1
+            if positive_count > 150:
+                return {'value': True}
+    return {'value': False}
 
 
 @app.post("/relay/<identifier>")
@@ -92,6 +95,26 @@ def motors(request, identifier):
     return 'OK'
 
 
+@app.post("/stop")
+def emergency_stop(request):
+    for r in relays:
+        r.value(True)
+    return 'OK'
+
+
+@app.get("/status")
+def motors(request):
+    return 'OK'
+
+
+@app.post("/release")
+def motors(request):
+    global stop
+
+    stop = False
+    return 'OK'
+
+
 def start_server():
     print('Starting microdot app')
     try:
@@ -102,21 +125,32 @@ def start_server():
 
 
 def emergency_shutdown():
-    global emergency_old
+    global emergency_old, stop
 
     send = False
-    stop = False
+    stop = True
     while True:
-        if not emergency.value() and emergency_old:
+        if emergency.value() and not emergency_old:
+            print('Event detected')
             stop = not stop
             send = True
-        elif emergency.value() and not emergency_old:
             time.sleep(0.5)
 
         if send:
-            import requests
+            import urequests as requests
 
-            requests.post('http://process.ita/stop?stop={0}'.format(1 if stop else 0))
+            if not stop:
+                print('Sending init')
+                try:
+                    requests.post('http://process.ita/start')
+                except:
+                    print('Failed to send init')
+            else:
+                print('Sending stop')
+                try:
+                    requests.post('http://process.ita/stop')
+                except:
+                    print('Failed to send stop')
             send = False
         emergency_old = emergency.value()
 
@@ -125,39 +159,3 @@ _thread.start_new_thread(emergency_shutdown, ())
 
 while True:
     start_server()
-"""
-from seven_segments import ComposableSevenSegments, IC74LS47
-from microdot import Microdot
-import network
-import _thread
-
-wlan = network.WLAN(network.STA_IF)
-print('network config:', wlan.ifconfig())
-
-app = Microdot()
-
-driver = IC74LS47(5, 22, 23, 17, 21, 19, 18)
-displays = ComposableSevenSegments(3, display_select=(15, 2, 4), driver=driver)
-
-
-@app.route("/")
-def index():
-    return "Hello World!"
-
-
-@app.route("/display")
-def distance(request):
-    print('Data received')
-    number = int(request.args['number'])
-    displays.number = number
-    return f'OK'
-
-
-_thread.start_new_thread(displays.show, ())
-
-while True:
-    try:
-        app.run(port=80)
-    except:
-        print('An error has ocurred')
-"""
